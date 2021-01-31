@@ -48,7 +48,7 @@ export class Game {
             ([cardValue]) => decision.card.value > cardValue
           ) || [null, null];
 
-          if (rowIndex) {
+          if (rowIndex !== null) {
             this.table[rowIndex].push(decision.card);
 
             if (this.table[rowIndex].length >= settings.takes) {
@@ -76,7 +76,7 @@ export class Game {
         head.push([row[row.length - 1].value, index]);
         return head;
       }, [] as Array<[number, number]>)
-      .sort((a, b) => a[0] - b[0]);
+      .sort((a, b) => b[0] - a[0]);
   }
 
   private determineWinner(): Player {
