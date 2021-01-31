@@ -1,5 +1,6 @@
 import { nanoid } from "nanoid";
 import prompts from "prompts";
+import EventEmitter from "events";
 
 export enum PlayerType {
   Player,
@@ -51,21 +52,26 @@ export class Table {
   }
 }
 
-export class Game {
+export class Game extends EventEmitter {
   public deck: Card[];
   public players: Player[];
   public table: Table;
 
   constructor(players: Player[]) {
+    super();
     this.players = players;
     this.deck = this.createDeck();
     this.table = new Table();
+    this.emit("initialized", this);
   }
 
   public async start() {
+    this.emit("starting", this);
     this.distributeCards();
+    this.emit("cardsDistributed", this);
 
     for (let i = 0; i < settings.maxHand; i++) {
+      this.emit("roundStart", i + 1);
       if (this.players.some((player) => player.type === PlayerType.Console)) {
         console.log(`=== Round ${i + 1} ===`);
         console.log(
@@ -79,6 +85,8 @@ export class Game {
           player: player,
         }))
       );
+
+      this.emit("cardsChosen", decisions);
 
       decisions
         .sort(
@@ -127,8 +135,11 @@ export class Game {
             }
           }
         });
+
+      this.emit("roundEnd", i + 1);
     }
 
+    this.emit("end", this);
     return this.determineWinner();
   }
 
