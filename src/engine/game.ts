@@ -12,23 +12,60 @@ export const settings = {
   takes: 6,
 };
 
+export class Table {
+  public rows: Card[][];
+
+  constructor() {
+    this.rows = [];
+  }
+
+  public getHeadCards(): [number, number][] {
+    return this.rows.reduce((head, row: Card[], index: number) => {
+      head.push([row[row.length - 1].value, index]);
+      return head;
+    }, [] as Array<[number, number]>);
+  }
+
+  public getCheapestRowIndex(): number {
+    const pointsPerRow = this.rows.map((row) => {
+      return row.reduce((score, card) => score + card.points, 0);
+    });
+    const min = Math.min.apply(null, pointsPerRow);
+    return pointsPerRow.indexOf(min);
+  }
+
+  public predictRowIndex(value: number): number {
+    const [, rowIndex] = this.getHeadCards()
+      .sort((a, b) => b[0] - a[0])
+      .find(([cardValue]) => value > cardValue) || [null, -1];
+
+    return rowIndex;
+  }
+
+  public getDangerousRowIndices() {
+    return this.rows
+      .filter((row) => row.length === settings.takes - 1)
+      .map((_row, index) => index);
+  }
+}
+
 export class Game {
   public deck: Card[];
   public players: Player[];
-  public table: Card[][];
+  public table: Table;
 
   constructor(players: Player[]) {
     this.players = players;
     this.deck = this.createDeck();
-    this.table = [];
+    this.table = new Table();
   }
 
   public start() {
     this.distributeCards();
 
     for (let i = 0; i < settings.maxHand; i++) {
-      console.log(`Round ${i + 1}`);
-      console.log(this.table.map((row) => row.map((card) => card.value)));
+      console.log(`=== Round ${i + 1} ===`);
+      console.log(this.table.rows.map((row) => row.map((card) => card.value)));
       this.players
         .map((player) => ({
           card: player.chooseCard(this.table),
@@ -37,30 +74,33 @@ export class Game {
         .sort(
           (decisionA, decisionB) => decisionA.card.value - decisionB.card.value
         )
-        .map((decision) => {
-          console.log(`${decision.player.name}: ${decision.card.value}`);
-          return decision;
-        })
         .forEach((decision) => {
           const player = decision.player;
+          const rowIndex = this.table.predictRowIndex(decision.card.value);
 
-          const [, rowIndex] = this.getHeadCards().find(
-            ([cardValue]) => decision.card.value > cardValue
-          ) || [null, null];
+          if (rowIndex >= 0) {
+            this.table.rows[rowIndex].push(decision.card);
 
-          if (rowIndex !== null) {
-            this.table[rowIndex].push(decision.card);
-
-            if (this.table[rowIndex].length >= settings.takes) {
+            if (this.table.rows[rowIndex].length >= settings.takes) {
+              console.log(
+                `Player ${
+                  decision.player.name
+                } picks up row ${rowIndex} for ${this.table.rows[
+                  rowIndex
+                ].reduce((count, card) => count + card.points, 0)} points`
+              );
               player.graveyard = player.graveyard.concat(
-                this.table[rowIndex].splice(0, this.table[rowIndex].length - 1)
+                this.table.rows[rowIndex].splice(
+                  0,
+                  this.table.rows[rowIndex].length - 1
+                )
               );
             }
           } else {
-            const cry = this.getCheapestRowIndex();
-            this.table[cry].push(decision.card);
+            const cry = this.table.getCheapestRowIndex();
+            this.table.rows[cry].push(decision.card);
             player.graveyard = player.graveyard.concat(
-              this.table[cry].splice(0, this.table[cry].length - 1)
+              this.table.rows[cry].splice(0, this.table.rows[cry].length - 1)
             );
             console.log(`Player ${decision.player.name} cries.`);
           }
@@ -70,29 +110,12 @@ export class Game {
     return this.determineWinner();
   }
 
-  private getHeadCards(): [number, number][] {
-    return this.table
-      .reduce((head, row: Card[], index: number) => {
-        head.push([row[row.length - 1].value, index]);
-        return head;
-      }, [] as Array<[number, number]>)
-      .sort((a, b) => b[0] - a[0]);
-  }
-
   private determineWinner(): Player {
     const results = this.players.map((player) =>
       player.graveyard.reduce((points, card) => points + card.points, 0)
     );
     const min = Math.min.apply(null, results);
     return this.players[results.indexOf(min)];
-  }
-
-  private getCheapestRowIndex(): number {
-    const pointsPerRow = this.table.map((row) => {
-      return row.reduce((score, card) => score + card.points, 0);
-    });
-    const min = Math.min.apply(null, pointsPerRow);
-    return pointsPerRow.indexOf(min);
   }
 
   private createDeck() {
@@ -128,7 +151,7 @@ export class Game {
     });
 
     for (let i = 0; i < settings.rows; i++) {
-      this.table[i] = [this.deck.splice(0, 1)[0]];
+      this.table.rows[i] = [this.deck.splice(0, 1)[0]];
     }
   }
 }
@@ -150,12 +173,12 @@ export class Player {
     return this._id;
   }
 
-  public chooseCard(table?: Card[][]): Card {
+  public chooseCard(table?: Table): Card {
     let bestGuess: number = -1;
 
     if (table) {
-      // Check for sure card
-      table.forEach((row) => {
+      // Check for sure/adjacent card on safe row
+      table.rows.forEach((row) => {
         if (row.length >= settings.takes - 1) {
           return;
         }
@@ -167,14 +190,30 @@ export class Player {
         });
       });
 
-      // Try to skip row if it's full
+      // Try to play random card in a safe row
+      if (bestGuess === -1) {
+        const nogoRows = table.getDangerousRowIndices();
+        const saferCards = this.hand.filter((card) => {
+          const predictedRow = table.predictRowIndex(card.value);
+          return nogoRows.indexOf(predictedRow) < 0;
+        });
+
+        bestGuess = Math.floor(Math.random() * (saferCards.length - 1));
+      }
     }
 
-    if (bestGuess < 0) {
+    // Everything failed, you'll likely have to pick up
+    if (bestGuess === -1) {
       bestGuess = Math.floor(Math.random() * (this.hand.length - 1));
     }
 
-    return this.hand.splice(bestGuess, 1)[0];
+    const choice = this.hand.splice(bestGuess, 1)[0];
+    console.log(
+      `Player ${this.name} chose ${choice.value} with hand ${this.hand
+        .map((card) => card.value)
+        .sort((a, b) => a - b)}`
+    );
+    return choice;
   }
 }
 

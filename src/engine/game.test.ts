@@ -28,7 +28,7 @@ test("game finishes with ascending rows", (t) => {
     new Player(),
   ]);
   game.start();
-  game.table.forEach((row) => {
+  game.table.rows.forEach((row) => {
     if (!isAscending(row.map((card) => card.value))) {
       t.fail();
     }
@@ -49,6 +49,6 @@ test("no. cards played are correct", (t) => {
     (count, player) => count + player.graveyard.length,
     0
   );
-  cardsPlayed += game.table.reduce((count, row) => count + row.length, 0);
+  cardsPlayed += game.table.rows.reduce((count, row) => count + row.length, 0);
   t.is(cardsPlayed, settings.maxCards);
 });

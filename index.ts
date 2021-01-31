@@ -9,7 +9,7 @@ const game = new Game([
 
 const winner = game.start();
 
-console.log(game.table.map((row) => row.map((card) => card.value)));
+console.log(game.table.rows.map((row) => row.map((card) => card.value)));
 console.log(
   game.players.map((player) =>
     player.graveyard.reduce((points, card) => points + card.points, 0)
