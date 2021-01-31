@@ -20,14 +20,14 @@ test("game initializes unique deck", (t) => {
   t.pass();
 });
 
-test("game finishes with ascending rows", (t) => {
+test("game finishes with ascending rows", async (t) => {
   const game = new Game([
     new Player(),
     new Player(),
     new Player(),
     new Player(),
   ]);
-  game.start();
+  await game.start();
   game.table.rows.forEach((row) => {
     if (!isAscending(row.map((card) => card.value))) {
       t.fail();
@@ -36,14 +36,14 @@ test("game finishes with ascending rows", (t) => {
   t.pass();
 });
 
-test("no. cards played are correct", (t) => {
+test("no. cards played are correct", async (t) => {
   const game = new Game([
     new Player(),
     new Player(),
     new Player(),
     new Player(),
   ]);
-  game.start();
+  await game.start();
   let cardsPlayed = game.deck.length;
   cardsPlayed += game.players.reduce(
     (count, player) => count + player.graveyard.length,

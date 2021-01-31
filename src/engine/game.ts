@@ -1,8 +1,10 @@
 import { nanoid } from "nanoid";
+import prompts from "prompts";
 
-enum PlayerType {
+export enum PlayerType {
   Player,
   AI,
+  Console,
 }
 
 export const settings = {
@@ -60,17 +62,25 @@ export class Game {
     this.table = new Table();
   }
 
-  public start() {
+  public async start() {
     this.distributeCards();
 
     for (let i = 0; i < settings.maxHand; i++) {
-      console.log(`=== Round ${i + 1} ===`);
-      console.log(this.table.rows.map((row) => row.map((card) => card.value)));
-      this.players
-        .map((player) => ({
-          card: player.chooseCard(this.table),
+      if (this.players.some((player) => player.type === PlayerType.Console)) {
+        console.log(`=== Round ${i + 1} ===`);
+        console.log(
+          this.table.rows.map((row) => row.map((card) => card.value))
+        );
+      }
+
+      const decisions = await Promise.all(
+        this.players.map(async (player) => ({
+          card: await player.chooseCard(this.table),
           player: player,
         }))
+      );
+
+      decisions
         .sort(
           (decisionA, decisionB) => decisionA.card.value - decisionB.card.value
         )
@@ -82,13 +92,19 @@ export class Game {
             this.table.rows[rowIndex].push(decision.card);
 
             if (this.table.rows[rowIndex].length >= settings.takes) {
-              console.log(
-                `Player ${
-                  decision.player.name
-                } picks up row ${rowIndex} for ${this.table.rows[
-                  rowIndex
-                ].reduce((count, card) => count + card.points, 0)} points`
-              );
+              if (
+                this.players.some(
+                  (player) => player.type === PlayerType.Console
+                )
+              ) {
+                console.log(
+                  `Player ${
+                    decision.player.name
+                  } picks up row ${rowIndex} for ${this.table.rows[
+                    rowIndex
+                  ].reduce((count, card) => count + card.points, 0)} points`
+                );
+              }
               player.graveyard = player.graveyard.concat(
                 this.table.rows[rowIndex].splice(
                   0,
@@ -102,7 +118,13 @@ export class Game {
             player.graveyard = player.graveyard.concat(
               this.table.rows[cry].splice(0, this.table.rows[cry].length - 1)
             );
-            console.log(`Player ${decision.player.name} cries.`);
+            if (
+              this.players.some((player) => player.type === PlayerType.Console)
+            ) {
+              console.log(
+                `Player ${decision.player.name} picks up row ${cry}.`
+              );
+            }
           }
         });
     }
@@ -163,17 +185,46 @@ export class Player {
   type: PlayerType;
   graveyard: Card[] = [];
 
-  constructor(name = "") {
+  constructor(name = "", type = PlayerType.AI) {
     this._id = nanoid();
     this.name = name;
-    this.type = PlayerType.AI;
+    this.type = type;
   }
 
   public get id() {
     return this._id;
   }
 
-  public chooseCard(table?: Table): Card {
+  public async chooseCard(table?: Table): Promise<Card> {
+    let cardIndex;
+    if (this.type === PlayerType.AI) {
+      if (!table) {
+        throw new Error(
+          "Table must be passed as argument for AI to make a decision."
+        );
+      }
+      cardIndex = this.guessCard(table);
+    } else if (this.type === PlayerType.Console) {
+      const answer = await prompts({
+        type: "select",
+        message: "Pick a card: ",
+        name: "index",
+        choices: this.hand
+          .map((card, index) => ({
+            title: `${card.value} (${card.points})`,
+            value: index,
+          }))
+          .sort((a, b) => a.value - b.value),
+      });
+      cardIndex = answer.index;
+    } else {
+      throw new Error("Player type not supported");
+    }
+
+    return this.hand.splice(cardIndex, 1)[0];
+  }
+
+  private guessCard(table: Table): number {
     let bestGuess: number = -1;
 
     if (table) {
@@ -185,7 +236,6 @@ export class Player {
         this.hand.forEach((card, index) => {
           if (row[row.length - 1].value === card.value - 1) {
             bestGuess = index;
-            console.log("found adjacent card");
           }
         });
       });
@@ -207,13 +257,12 @@ export class Player {
       bestGuess = Math.floor(Math.random() * (this.hand.length - 1));
     }
 
-    const choice = this.hand.splice(bestGuess, 1)[0];
-    console.log(
-      `Player ${this.name} chose ${choice.value} with hand ${this.hand
-        .map((card) => card.value)
-        .sort((a, b) => a - b)}`
-    );
-    return choice;
+    /* console.log(
+      `Player ${this.name} chose ${
+        this.hand[bestGuess].value
+      } with hand ${this.hand.map((card) => card.value).sort((a, b) => a - b)}`
+    ); */
+    return bestGuess;
   }
 }
 
