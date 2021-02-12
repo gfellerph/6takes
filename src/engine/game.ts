@@ -13,6 +13,7 @@ export const settings = {
   maxHand: 10,
   maxCards: 104,
   takes: 6,
+  maxScore: 66,
 };
 
 export class Table {
@@ -53,6 +54,32 @@ export class Table {
 }
 
 export class Game extends EventEmitter {
+  players: Player[];
+  roundCount = 0;
+
+  constructor(players: Player[]) {
+    super();
+    this.players = players;
+  }
+
+  async start() {
+    while (this.players.some((player) => !player.hasLost)) {
+      const round = new Round(this.players);
+      this.players = await round.start();
+    }
+
+    this.players = this.players.sort((a, b) => a.score - b.score);
+    console.log("=== Game ends ===");
+    console.log(
+      this.players
+        .map(
+          (player, index) => `${index + 1}. ${player.name} (${player.score})`
+        )
+        .join("\n")
+    );
+  }
+}
+export class Round extends EventEmitter {
   public deck: Card[];
   public players: Player[];
   public table: Table;
@@ -75,7 +102,9 @@ export class Game extends EventEmitter {
       if (this.players.some((player) => player.type === PlayerType.Console)) {
         console.log(`=== Round ${i + 1} ===`);
         console.log(
-          this.table.rows.map((row) => row.map((card) => card.value))
+          this.table.rows
+            .map((row) => row.map((card) => card.value).join(", "))
+            .join("\n")
         );
       }
 
@@ -87,6 +116,12 @@ export class Game extends EventEmitter {
       );
 
       this.emit("cardsChosen", decisions);
+
+      console.log(
+        decisions
+          .map((decision) => `${decision.player.name}: ${decision.card.value}`)
+          .join(" | ")
+      );
 
       decisions
         .sort(
@@ -130,25 +165,39 @@ export class Game extends EventEmitter {
               this.players.some((player) => player.type === PlayerType.Console)
             ) {
               console.log(
-                `Player ${decision.player.name} picks up row ${cry}.`
+                `Player ${
+                  decision.player.name
+                } picks up row ${cry} for ${this.table.rows[cry].reduce(
+                  (count, card) => count + card.points,
+                  0
+                )} points`
               );
             }
           }
         });
-
-      this.emit("roundEnd", i + 1);
     }
 
     this.emit("end", this);
-    return this.determineWinner();
-  }
+    this.players = this.players
+      .map((player) => {
+        player.score += player.graveyard.reduce(
+          (points, card) => points + card.points,
+          0
+        );
+        return player;
+      })
+      .sort((playerA, playerB) => playerA.score - playerB.score);
 
-  private determineWinner(): Player {
-    const results = this.players.map((player) =>
-      player.graveyard.reduce((points, card) => points + card.points, 0)
+    console.log("=== Round ends ===");
+    console.log(
+      this.players
+        .sort((a, b) => a.score - b.score)
+        .map(
+          (player, index) => `${index + 1}. ${player.name} (${player.score})`
+        )
+        .join("\n")
     );
-    const min = Math.min.apply(null, results);
-    return this.players[results.indexOf(min)];
+    return this.players;
   }
 
   private createDeck() {
@@ -195,15 +244,21 @@ export class Player {
   name: string;
   type: PlayerType;
   graveyard: Card[] = [];
+  score: number;
 
   constructor(name = "", type = PlayerType.AI) {
     this._id = nanoid();
     this.name = name;
     this.type = type;
+    this.score = 0;
   }
 
   public get id() {
     return this._id;
+  }
+
+  public get hasLost() {
+    return this.score >= settings.maxScore;
   }
 
   public async chooseCard(table?: Table): Promise<Card> {
@@ -224,8 +279,9 @@ export class Player {
           .map((card, index) => ({
             title: `${card.value} (${card.points})`,
             value: index,
+            order: card.value,
           }))
-          .sort((a, b) => a.value - b.value),
+          .sort((a, b) => a.order - b.order),
       });
       cardIndex = answer.index;
     } else {
